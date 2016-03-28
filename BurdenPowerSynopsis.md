@@ -1,4 +1,3 @@
-
 ##Power for de novo and case/control studies
 Hailiang Huang<sup>1</sup>, Benjamin Neale<sup>1</sup> and Stephan Sanders<sup>2</sup> <br>
 1 Analytic and Translational Genetics Unit, Massachusetts General Hospital and the Broad Institute of MIT and Harvard<br>
@@ -92,6 +91,5 @@ We prove that the following is chi-square distributed: $$\chi^2=\frac{(Q_1-Q_0)^
 We know the following quantity from the $t$ test follows a normal distribution
 $$z=\frac{\bar{x}_1-\bar{x}_2}{\sqrt{var(x_1)/N_1+var(x_2)/N_2}}$$ .  
 We assume group 1 is the case cohort and group 2 is the control cohort.  We know that the poisson parameter is same as the mean and the variance of a poisson distribution.  Therefore, $\bar{x}_1=Q_1$  and $\bar{x}_2=Q_0$; $var(x_1)=(1-p)fQ_0+RpfQ_0=Q_1$ (assumes the two poisons in the mixture are independent) and $var(x_2)=Q_0$.  $\chi^2$ is simply $z^2$. 
-
 
 
