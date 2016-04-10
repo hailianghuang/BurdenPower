@@ -1,3 +1,4 @@
+
 NCPgen <- function(q,R,K,CaseN,ConN) {
   # q is the AF
   # R is the RR
@@ -40,10 +41,14 @@ denovoGen <- function(R, q,f,CaseN,ConN) {
     -(m$deviance-m$null.deviance)
 
 }
+
+denovoGenPower <- function(R, q,f,CaseN,ConN, p_cut_denovo) {
   
+   pchisq(qchisq(p_cut_denovo, 1, low=F), 1, ncp=denovoGen(R, q,f,CaseN,ConN), low=F)
   
-getSingleVarPower <- function(f, AF, R, K, N, r, P_cut_single, comment){
-  incProgress(0, detail = paste("Replication", comment,"- variant", f))
+}
+
+getSingleVarPower <- function(f, AF, R, K, N, r, P_cut_single){
   chi <- unlist(lapply(AF[1:f], function(i){ NCPgen(i,R,K,N*r/(1+r),N/(1+r)) })) 
   power_snp <- pchisq(qchisq(P_cut_single, 1, low=F), 1, ncp=chi, low=F)
   ret <- 1-prod(1-power_snp) 
@@ -55,12 +60,6 @@ getBurdenPower <- function(f, AF, sum_var, R, K, N, r, p_cut_burden){
   ratio <- sum(AF[1:f] * (1-AF[1:f]) ) / sum_var
   chi <- NCPgen(sum(AF) , exp(log(R)*ratio), K, N*r/(1+r),N/(1+r))
   pchisq(qchisq(p_cut_burden, 1, low=F), 1, ncp=chi , low=F) 
-}
-
-getDenovoPower <- function(rr, q,f, N, r,  p_cut_denovo, comment){
-  chi <- unlist(lapply(rr, function(i){ incProgress(0, detail = paste("Replication", comment,"- RR", i)); denovoGen(i, q,f,N*r/(1+r),N/(1+r))  })) 
-  power <- pchisq(qchisq(p_cut_denovo, 1, low=F), 1, ncp=chi, low=F)
-  power
 }
 
 getDenovoPower_parametric <- function(rr, q,f, N, r,  p_cut_denovo){

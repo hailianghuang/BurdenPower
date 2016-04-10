@@ -21,22 +21,21 @@ ui <- shinyUI(fluidPage(
      column(3, wellPanel(
        shinyjs::useShinyjs(),
        selectInput("test", "Choose your analysis", c("De novo", "Case/Control")),
-#       conditionalPanel(
- #        condition = "input.test == 'Case/Control' | input.simulation ",
-         numericInput("N_rep", "Number of replications", 5),
-#         ),
+       selectInput("xaxis", "Choose the x-axis", c("Relative risk", "Sample size")),
+       numericInput("N_rep", "Number of replications", 5),
        numericInput("N", "Sample size", 5000),
        numericInput("r", "Case:Control ratio", 1, min=0.1, max=10, step=1),
        numericInput("R", "Maximum relative risk", 10, min=1.5, max=10)
       ),
        actionButton("goButton", "Run analysis"),
-	     downloadButton("downloadPDF", "Save figure")
+	     downloadButton("downloadPDF", "Save figure"),
+       downloadButton("downloadDat", "Save data")
      ),
      column(3, 
        uiOutput("ui")
      ),
      column(6, 
-        plotOutput("plot")
+       plotOutput("plot")
      )
   ),
   p("This power calculator was designed by Drs. Hailiang Huang, Stephan Sanders and Benjamin Neale.  Hailiang Huang and Benjamin Neale are from the Analytic and Translational Genetics Unit, Massachusetts General Hospital and the Broad Institute.  Stephan Sanders is from the Department of Psychiatry, UCSF School of Medicine. Source code, documents and contact info available at", a(href="https://github.com/hailianghuang/BurdenPower", "https://github.com/hailianghuang/BurdenPower"))
@@ -54,7 +53,7 @@ server <- shinyServer(function(input, output, session) {
              "Case/Control" = wellPanel(
                         numericInput("K", "Disease prevalence", 0.01, min=0.00001, max=0.2, step=0.01),
                         numericInput("s", "Number of variants in gene", 50, min=1, max=10000, step=1),                
-                        numericInput("f_gene", "Number of variants that are functional", 1, min=1, max=10000, step=1), 
+                        numericInput("f_gene", "Number of variants that are functional", 25, min=1, max=10000, step=1), 
                         numericInput("AF_bar", "Average minor allele frequency", 0.001, min=0.00001, max=0.05, step=0.001), 
                         numericInput("P_cut_single", "p-value threshold for single variant test", 1E-10, min=1E-12, max=0.05, step=1E-10),
                         numericInput("p_cut_burden", "p-value threshold for burden test", 1E-10, min=1E-12, max=0.05, step=1E-10),
@@ -81,6 +80,24 @@ server <- shinyServer(function(input, output, session) {
       }      
     })
     
+    observeEvent(input$xaxis, {
+      if( input$xaxis=="Relative risk" ){
+        if( input$test=="De novo" ){
+          updateNumericInput(session, "N", value=5000, label="Sample size")
+        }else{
+          updateNumericInput(session, "N", value=100000, label="Sample size")
+        } 
+        updateNumericInput(session, "R", value=10, label="Maximum relative risk")
+      }else{
+        if( input$test=="De novo" ){
+          updateNumericInput(session, "N", value=10000, label="Maximum sample size")
+        }else{
+          updateNumericInput(session, "N", value=200000, label="Maximum sample size")
+        } 
+        updateNumericInput(session, "R", value=3, label="Relative risk")
+      }      
+    })
+    
     observeEvent(input$test, {
       if( input$test=="De novo" ){
         shinyjs::disable("N_rep")
@@ -93,10 +110,8 @@ server <- shinyServer(function(input, output, session) {
     
     set.seed(1)
   
-    plotRegular <- function(){
-      
-#      n_function <- c(1:input$s)
-      
+    plotRegular <- function(download=F, file=NULL){
+    
       if(input$f_gene > input$s){
         plot(0, 0, type="n", xlab="",  ylab="", xlim=c(0,1), ylim=c(0,1), axes=F)
         text(0,1, adj=0, "Number of functonal variant must be less than total number of variants.", col="red")
@@ -117,39 +132,72 @@ server <- shinyServer(function(input, output, session) {
       power_single <- c()
       sum_var <- apply(AF_save, 2, function(x){ sum(x*(1-x) ) })
       
-      R <- seq(1, input$R, by=0.5)
+      rr <- seq(1, input$R, by=0.5)
+      nn <- seq(100, input$N, by=1000)
       withProgress(message = 'Making plot', value=0, {
         for (i_rep in c(1:input$N_rep)){
-#          power_burden <- cbind(power_burden, unlist(lapply(n_function, getBurdenPower, AF_save[,i_rep], sum_var[i_rep], input$R, input$K, input$N, input$r, input$p_cut_burden )))
-#          power_single <- cbind(power_single, unlist(lapply(n_function, getSingleVarPower, AF_save[,i_rep], input$R, input$K, input$N, input$r, input$P_cut_single, i_rep)))
-          power_burden <- cbind(power_burden, unlist(lapply(R, function(R, f, AF, sum_var, K, N, r, p_cut_burden){getBurdenPower(f, AF, sum_var, R, K, N, r, p_cut_burden)}, input$f_gene, AF_save[,i_rep], sum_var[i_rep], input$K, input$N, input$r, input$p_cut_burden )))
-          power_single <- cbind(power_single, unlist(lapply(R, function(R, f, AF, K, N, r, P_cut_single, comment) {getSingleVarPower(f, AF, R, K, N, r, P_cut_single, comment)}, input$f_gene, AF_save[,i_rep],  input$K, input$N, input$r, input$P_cut_single, i_rep)))
+          incProgress(1/input$N_rep, detail = paste("Replication", i_rep))
+          if(input$xaxis=="Relative risk"){
+            power_burden <- cbind(power_burden, unlist(lapply(rr, function(R, f, AF, sum_var, K, N, r, p_cut_burden){getBurdenPower(f, AF, sum_var, R, K, N, r, p_cut_burden)}, input$f_gene, AF_save[,i_rep], sum_var[i_rep], input$K, input$N, input$r, input$p_cut_burden )))
+            power_single <- cbind(power_single, unlist(lapply(rr, function(R, f, AF, K, N, r, P_cut_single) {getSingleVarPower(f, AF, R, K, N, r, P_cut_single)}, input$f_gene, AF_save[,i_rep],  input$K, input$N, input$r, input$P_cut_single)))
+          }else{
+            power_burden <- cbind(power_burden, unlist(lapply(nn, function(N, f, AF, sum_var, K, R, r, p_cut_burden){getBurdenPower(f, AF, sum_var, R, K, N, r, p_cut_burden)}, input$f_gene, AF_save[,i_rep], sum_var[i_rep], input$K, input$R, input$r, input$p_cut_burden )))
+            power_single <- cbind(power_single, unlist(lapply(nn, function(N, f, AF, K, R, r, P_cut_single) {getSingleVarPower(f, AF, R, K, N, r, P_cut_single)}, input$f_gene, AF_save[,i_rep],  input$K, input$R, input$r, input$P_cut_single)))
+          }
+          
         }
       })
       
-      plot(0, 0, type="n", xlab="Relative risk",  ylab="Power", xlim=range(R), ylim=c(0,1))
-      legend("topleft", c("Burden","Single Variant"), bty="n", lty=c("solid","solid"), lwd=3, col=c("blue","red"))
-      
-      lines(R, apply(power_burden, 1, mean), lwd=3,col="blue")
-      lines(R, apply(power_single, 1, mean), lwd=3,col="red")
-      
-      if(input$showCI){
-        sd <-  apply(power_burden, 1, sd)/sqrt(input$N_rep) * 1.96
-        lines(R, pmin(apply(power_burden, 1, mean) +sd,1), lwd=1,col="blue", lty="dashed")
-        lines(R, pmax(apply(power_burden, 1, mean) -sd,0) , lwd=1,col="blue", lty="dashed")
-        sd <-  apply(power_single, 1, sd)/sqrt(input$N_rep) * 1.96
-        lines(R, pmin(apply(power_single, 1, mean) +sd, 1), lwd=1,col="red", lty="dashed")
-        lines(R, pmax(apply(power_single, 1, mean) -sd, 0), lwd=1,col="red", lty="dashed")
+      if(input$xaxis=="Relative risk"){
+        xaxis <- rr
+        xlabel <- "Relative risk"
+      }else{
+        xaxis <- nn
+        xlabel <- "Sample size"
       }
       
-#      for (i_rep in c(1:input$N_rep)){
-#        lines(n_function, power_burden[, i_rep], lwd=3,col="blue")
-#        lines(n_function, power_single[, i_rep], lwd=3, col="red", lty="dashed")
-#      }
+      if(download){
+        writeLines(paste("#Analysis:", input$test), file)
+        writeLines(paste("#x axis:", input$xaxis), file)
+        writeLines(paste("#Sample size:", input$N), file)
+        writeLines(paste("#Case/control ratio:", input$r), file)
+        writeLines(paste("#Relative risk:", input$R), file)
+        writeLines(paste("#Prevalence:", input$K), file)
+        writeLines(paste("#Number of variants in gene:", input$s), file)
+        writeLines(paste("#Number of variants that are functional:", input$f_gene), file)
+        writeLines(paste("#Average minor allele frequency:", input$AF_bar), file)
+        writeLines(paste("#p-value threshold for single variant test:", input$P_cut_single), file)
+        writeLines(paste("#p-value threshold for burden test:", input$P_cut_burden), file)
+        
+        if(input$xaxis=="Relative risk"){
+          dat <-  data.frame(status=rep(c("burden", "single"), each=length(rr)) ,  RR=rep(rr, 2), rep=rbind(power_burden, power_single))
+        }else{
+          dat <-  data.frame(status=rep(c("burden", "single"), each=length(nn)) , N=rep(nn, 2), rep=rbind(power_burden, power_single))
+        }
+        write.table(dat, file, quote=F, col.names=T, row.names=F, sep="\t")
+        
+      }else{
+        
+        plot(0, 0, type="n", xlab=xlabel,  ylab="Power", xlim=range(xaxis), ylim=c(0,1))
+        
+        lines(xaxis, apply(power_burden, 1, mean), lwd=3,col="blue")
+        lines(xaxis, apply(power_single, 1, mean), lwd=3,col="red")
+        
+        if(input$showCI){
+          sd <-  apply(power_burden, 1, sd)/sqrt(input$N_rep) * 1.96
+          lines(xaxis, pmin(apply(power_burden, 1, mean) +sd,1), lwd=1,col="blue", lty="dashed")
+          lines(xaxis, pmax(apply(power_burden, 1, mean) -sd,0) , lwd=1,col="blue", lty="dashed")
+          sd <-  apply(power_single, 1, sd)/sqrt(input$N_rep) * 1.96
+          lines(xaxis, pmin(apply(power_single, 1, mean) +sd, 1), lwd=1,col="red", lty="dashed")
+          lines(xaxis, pmax(apply(power_single, 1, mean) -sd, 0), lwd=1,col="red", lty="dashed")
+        }
+        legend("topleft", c("Burden","Single Variant"), bty="n", lty=c("solid","solid"), lwd=3, col=c("blue","red"))
+        
+      }
       
     }
 
-    plotDenovo <- function(){
+    plotDenovo <- function(download=F, file=NULL){
       
       if(input$f_func_genome * input$denovo_genome < input$denovo_select * input$f_func_select ){
         plot(0, 0, type="n", xlab="",  ylab="", xlim=c(0,1), ylim=c(0,1), axes=F)
@@ -157,33 +205,78 @@ server <- shinyServer(function(input, output, session) {
         return()
       }
       
-      plot(0, 0, type="n", xlab="Relative Risk", ylab="Power", xlim=c(1, input$R), ylim=c(0,1))
       rr <- seq(1, input$R, by=.5)
-      power_para_genome <- getDenovoPower_parametric(rr, input$denovo_genome, input$f_func_genome,  input$N, input$r, input$p_cut_burden.denovo)
-      power_para_selected <- getDenovoPower_parametric(rr, input$denovo_select , input$f_func_select, input$N, input$r,  input$p_cut_burden.denovo)
-      
-      lines(rr, power_para_genome, lwd=3,col="blue")
-      lines(rr, power_para_selected, lwd=3, col="red")
+      nn <- seq(100, input$N, by=1000)
+      if(input$xaxis=="Relative risk"){
+        power_para_genome <- getDenovoPower_parametric(rr, input$denovo_genome, input$f_func_genome,  input$N, input$r, input$p_cut_burden.denovo)
+        power_para_selected <- getDenovoPower_parametric(rr, input$denovo_select , input$f_func_select, input$N, input$r,  input$p_cut_burden.denovo)
+      }else{
+        power_para_genome <- getDenovoPower_parametric(input$R, input$denovo_genome, input$f_func_genome, nn, input$r, input$p_cut_burden.denovo)
+        power_para_selected <- getDenovoPower_parametric(input$R, input$denovo_select , input$f_func_select, nn, input$r,  input$p_cut_burden.denovo)
+      }
       
       if(input$simulation){
         withProgress(message = 'Making plot', value=0, {
-       
+          
           power_genome <- c()
           power_selected <- c()
           for (i_rep in c(1:input$N_rep)){
-            power_genome <- cbind(power_genome,  getDenovoPower(rr, input$denovo_genome, input$f_func_genome,  input$N, input$r, input$p_cut_burden.denovo, i_rep) )
-            power_selected <- cbind(power_selected,  getDenovoPower(rr, input$denovo_select , input$f_func_select, input$N, input$r,  input$p_cut_burden.denovo, i_rep) )
+            incProgress(1/input$N_rep, detail = paste("Replication", i_rep))
+            if(input$xaxis=="Relative risk"){
+              power_genome <- cbind(power_genome, unlist(lapply(rr, function(R, q,f,N,r, p_cut_denovo){denovoGenPower(R, q,f,N*r/(1+r),N/(1+r), p_cut_denovo) }, input$denovo_genome,input$f_func_genome,input$N, input$r, input$p_cut_burden.denovo )) )
+              power_selected <- cbind(power_selected, unlist(lapply(rr, function(R, q,f,N,r, p_cut_denovo){denovoGenPower(R, q,f,N*r/(1+r),N/(1+r), p_cut_denovo) }, input$denovo_select,input$f_func_select,input$N, input$r, input$p_cut_burden.denovo )) )  
+            }else{
+              power_genome <- cbind(power_genome, unlist(lapply(nn, function(N, q,f,R,r, p_cut_denovo){denovoGenPower(R, q,f,N*r/(1+r),N/(1+r), p_cut_denovo) }, input$denovo_genome, input$f_func_genome, input$R, input$r, input$p_cut_burden.denovo )) )
+              power_selected <- cbind(power_selected, unlist(lapply(nn, function(N, q,f,R,r, p_cut_denovo){denovoGenPower(R, q,f,N*r/(1+r),N/(1+r), p_cut_denovo) }, input$denovo_select, input$f_func_select, input$R, input$r, input$p_cut_burden.denovo )) )  
+            }
           }
         })
-      
-        for (i_rep in c(1:input$N_rep)){
-          lines(rr, power_genome[, i_rep], lwd=1,col="blue", lty="dashed")
-          lines(rr, power_selected[, i_rep], lwd=1, col="red", lty="dashed")
-        }
-        legend("bottomright",c("Full genome (parametric)","Selected regions (parametric)", "Full genome (simulation)","Selected regions (simulation)"),bty="n", lty=c("solid","solid", "dashed", "dashed"),lwd=3,col=c("blue","red","blue","red"))
-      }else{
-        legend("bottomright",c("Full genome (parametric)","Selected regions (parametric)"),bty="n", lty=c("solid","solid"),lwd=3,col=c("blue","red"))
         
+      }
+      
+      if(input$xaxis=="Relative risk"){
+        xaxis <- rr
+        xlabel <- "Relative risk"
+      }else{
+        xaxis <- nn
+        xlabel <- "Sample size"
+        
+      }
+      
+      if(download){
+        writeLines(paste("#Analysis:", input$test), file)
+        writeLines(paste("#x axis:", input$xaxis), file)
+        writeLines(paste("#Sample size:", input$N), file)
+        writeLines(paste("#Case/control ratio:", input$r), file)
+        writeLines(paste("#Relative risk:", input$R), file)
+        writeLines(paste("#Number of de novo mutations per genome:", input$denovo_genome), file)
+        writeLines(paste("#Number of de novo mutations in selected regions:", input$denovo_select), file)
+        writeLines(paste("#Proportion of functional alleles in genome:", input$f_func_genome), file)
+        writeLines(paste("#Proportion of functional alleles in selected regions:", input$f_func_select), file)
+        writeLines(paste("#p-value threshold:", input$p_cut_burden.denovo), file)
+
+        if(input$xaxis=="Relative risk"){
+          dat <-  data.frame(status=rep(c("whole_genome", "selected_region"), each=length(rr)) ,  RR=rep(rr, 2), power_parametric=c(power_para_genome, power_para_selected))
+        }else{
+          dat <-  data.frame(status=rep(c("whole_genome", "selected_region"), each=length(nn)) , N=rep(nn, 2), power_parametric=c(power_para_genome, power_para_selected))
+        }
+        if(input$simulation){
+          dat <- cbind(dat, rep=rbind(power_genome, power_selected))
+        }
+        write.table(dat, file, quote=F, col.names=T, row.names=F, sep="\t")
+      }else{
+        plot(0, 0, type="n", xlab=xlabel, ylab="Power", xlim=range(xaxis), ylim=c(0,1))
+        lines(xaxis, power_para_genome, lwd=3,col="blue")
+        lines(xaxis, power_para_selected, lwd=3, col="red")
+        if(input$simulation){
+          for (i_rep in c(1:input$N_rep)){
+            lines(xaxis, power_genome[, i_rep], lwd=1,col="blue", lty="dashed")
+            lines(xaxis, power_selected[, i_rep], lwd=1, col="red", lty="dashed")
+          }
+          legend("bottomright",c("Full genome (parametric)","Selected regions (parametric)", "Full genome (simulation)","Selected regions (simulation)"),bty="n", lty=c("solid","solid", "dashed", "dashed"),lwd=3,col=c("blue","red","blue","red"))
+        }else{
+          legend("bottomright",c("Full genome (parametric)","Selected regions (parametric)"),bty="n", lty=c("solid","solid"),lwd=3,col=c("blue","red"))
+        }
       }
     }
     
@@ -213,8 +306,23 @@ server <- shinyServer(function(input, output, session) {
         dev.off()
       },
       contentType = "application/pdf"
+    )
+    
+    output$downloadDat <- downloadHandler(
+      filename = function() {
+        paste('power-',  Sys.Date(),  '.txt', sep='')
+      },
+      content = function(filename){
+        con <- file(filename,  open="wt")
+        switch(input$test,
+               "De novo" =   plotDenovo(TRUE, con),
+               "Case/Control" =   plotRegular(TRUE, con)  
+        )
+        close(con)
+      },
+      contentType = "application/octet-stream"
     ) 
-	})
+  })
 })
 
 # Run the application 
